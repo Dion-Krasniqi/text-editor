@@ -2,16 +2,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
 #include <termios.h>
 
+/** data **/
 struct termios og_termios;
+/** terminal **/
+void die(const char *s) {
+  perror(s);
+  exit(1);
+}
 
 void disableRawMode() {
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &og_termios);
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &og_termios) == -1)
+    die("tcsetattr");
 }
 
 void enableRawMode() {
-  tcgetattr(STDIN_FILENO, &og_termios);
+  if (tcgetattr(STDIN_FILENO, &og_termios) == -1) die("tcgetattr");
   atexit(disableRawMode);
 
   struct termios raw = og_termios;
@@ -22,14 +30,14 @@ void enableRawMode() {
 
   raw.c_cc[VMIN] = 0;
   raw.c_cc[VTIME] = 1;
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetaatr");
 }
-
+/** main run **/
 int main() {
   enableRawMode();
   while (1) {
 	char c = '\0';
-	read(STDIN_FILENO, &c, 1);
+	if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
 	if (iscntrl(c)) {
 		printf("%d\r\n", c);
 	} else {
