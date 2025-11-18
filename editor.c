@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <termios.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 
 /** define **/
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -15,15 +16,25 @@ enum editorKey {
 	ARROW_RIGHT,
 	ARROW_UP,
 	ARROW_DOWN,
+	DEL_KEY,
+	HOME_KEY,
+	END_KEY,
 	PAGE_UP,
 	PAGE_DOWN
 };
 /** data **/
+typedef struct erow {
+	int size;
+	char *chars;
+} erow;
+
 struct editorConfig {
   int cx, cy;
   struct termios og_termios;
   int screenrows;
   int screencols;
+  int numrows;
+  erow row;
 };
 
 struct editorConfig E;
@@ -74,8 +85,13 @@ int editorReadKey() {
 		    if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
 		    if (seq[2] == '~'){
 		      switch (seq[1]){
+			case '1': return HOME_KEY;
+		        case '3': return DEL_KEY;
+			case '4': return END_KEY;
 		      	case '5': return PAGE_UP;
 		        case '6': return PAGE_DOWN;
+		        case '7': return HOME_KEY;
+			case '8': return END_KEY;
 		      }
 		    }
 		  
@@ -86,7 +102,14 @@ int editorReadKey() {
 			  case 'B': return ARROW_DOWN;
 		          case 'C': return ARROW_RIGHT;
 			  case 'D': return ARROW_LEFT;
-		}}}
+			  case 'H': return HOME_KEY;
+			  case 'F': return END_KEY;
+		}}} else if (seq[0] == 'O') {
+			switch (seq[1]) {
+				case 'H': return HOME_KEY;
+				case 'F': return END_KEY;
+			}
+		}
 	  return '\x1b';
 	} else {
   	  return c;
@@ -125,6 +148,18 @@ int getWindowSize(int *rows, int *cols) {
   }
 }
 
+/*** file i/o ***/
+
+void editorOpen() {
+	char *line = "Hello World!";
+	ssize_t linelen = 13;
+
+	E.row.size = linelen;
+	E.row.chars = malloc(linelen + 1);
+	memcpy(E.row.chars, line, linelen);
+	E.row.chars[linelen] = '\0';
+	E.numrows = 1;
+}
 /*** append buffer ***/
 
 struct abuf {
@@ -151,6 +186,7 @@ void abFree(struct abuf *ab){
 void editorDrawRows(struct abuf *ab) {
   int y;
   for (y = 0; y<E.screenrows; y++) {
+   if (y >= E.numrows) {
     if (y == E.screenrows / 3) {
       char welcome[80];
       int welcomelen = snprintf(welcome, sizeof(welcome),
@@ -166,6 +202,11 @@ void editorDrawRows(struct abuf *ab) {
     } else {
       abAppend(ab, "~", 1);
     }
+   } else {
+	   int len = E.row.size;
+	   if (len > E.screencols) len = E.screencols;
+	   abAppend(ab, E.row.chars, len);
+   }
     abAppend(ab, "\x1b[K", 3);
     if (y < E.screenrows - 1) {
       abAppend(ab, "\r\n", 2);
@@ -225,6 +266,12 @@ void editorProcessKeypress() {
       write(STDOUT_FILENO, "\x1b[H", 3);
       exit(0);
       break;
+    case HOME_KEY:
+      E.cx = 0;
+      break;
+    case END_KEY:
+      E.cx = E.screencols - 1;
+      break;
     case PAGE_UP:
     case PAGE_DOWN:
       {
@@ -246,12 +293,14 @@ void editorProcessKeypress() {
 void initEditor() {
   E.cx = 0;
   E.cy = 0;
+  E.numrows = 0;
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 }
 
 int main() {
   enableRawMode();
   initEditor();
+  editorOpen();
   while (1) {
 	editorRefreshScreen();
 	editorProcessKeypress();
